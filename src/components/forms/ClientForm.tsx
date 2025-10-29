@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BoltDatabase } from '../../lib/Bolt Database';
+import { BoltDatabase } from '../../lib/BoltDatabase';
 import { Plus, Trash2, Building2, MapPin, Phone, Mail, X, Key, Eye, EyeOff, Copy } from 'lucide-react';
 
 interface ElevatorData {
