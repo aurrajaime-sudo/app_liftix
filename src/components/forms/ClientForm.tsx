@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { Bolt Database } from '../../lib/Bolt Database';
 import { Plus, Trash2, Building2, MapPin, Phone, Mail, X, Key, Eye, EyeOff, Copy } from 'lucide-react';
 
 interface ElevatorData {
@@ -24,19 +24,23 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
 
   const [clientData, setClientData] = useState({
     company_name: '',
+    building_name: '',
     contact_name: '',
     contact_email: '',
     contact_phone: '',
     rut: '',
     address: '',
-    billing_address: '',
     password: '',
     confirmPassword: '',
   });
 
+  const [generatedClientCode, setGeneratedClientCode] = useState<string | null>(null);
+  const [generatedQRCode, setGeneratedQRCode] = useState<string | null>(null);
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const [totalEquipments, setTotalEquipments] = useState<number>(1);
   const [identicalElevators, setIdenticalElevators] = useState(false);
   const [elevatorCount, setElevatorCount] = useState(1);
   const [templateElevator, setTemplateElevator] = useState<ElevatorData>({
@@ -64,6 +68,10 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
   ]);
 
   const addElevator = () => {
+    if (elevators.length >= totalEquipments) {
+      alert(`No puedes agregar más de ${totalEquipments} ascensores. Este es el número de equipos especificado.`);
+      return;
+    }
     setElevators([
       ...elevators,
       {
@@ -96,6 +104,18 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
     setLoading(true);
     setError(null);
 
+    if (!identicalElevators && elevators.length !== totalEquipments) {
+      setError(`Debes agregar exactamente ${totalEquipments} ascensores. Actualmente tienes ${elevators.length}.`);
+      setLoading(false);
+      return;
+    }
+
+    if (identicalElevators && elevatorCount !== totalEquipments) {
+      setError(`El número de ascensores idénticos (${elevatorCount}) debe coincidir con el N° de Equipos (${totalEquipments}).`);
+      setLoading(false);
+      return;
+    }
+
     if (clientData.password !== clientData.confirmPassword) {
       setError('Las contraseñas no coinciden');
       setLoading(false);
@@ -123,7 +143,7 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
       if (authError) throw authError;
 
       if (authData.user) {
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile, error: profileError } = await Bolt Database
           .from('profiles')
           .insert({
             id: authData.user.id,
@@ -138,17 +158,19 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
 
         if (profileError) throw profileError;
 
-        const { data: client, error: clientError } = await supabase
+        const clientCode = `CLI-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+        const { data: client, error: clientError } = await Bolt Database
           .from('clients')
           .insert({
             profile_id: profile.id,
             company_name: clientData.company_name,
+            building_name: clientData.building_name,
             contact_name: clientData.contact_name,
             contact_email: clientData.contact_email,
             contact_phone: clientData.contact_phone,
             rut: clientData.rut || null,
             address: clientData.address,
-            billing_address: clientData.billing_address || clientData.address,
             is_active: true,
           })
           .select()
@@ -186,11 +208,24 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
           }));
         }
 
-        const { error: elevatorsError } = await supabase
+        const { error: elevatorsError } = await Bolt Database
           .from('elevators')
           .insert(elevatorsToInsert);
 
         if (elevatorsError) throw elevatorsError;
+
+        const QRCode = (await import('qrcode')).default;
+        const qrDataURL = await QRCode.toDataURL(clientCode, {
+          width: 300,
+          margin: 1,
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          }
+        });
+
+        setGeneratedClientCode(clientCode);
+        setGeneratedQRCode(qrDataURL);
       }
 
       if (onSuccess) onSuccess();
@@ -240,6 +275,22 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
                 onChange={(e) => setClientData({ ...clientData, company_name: e.target.value })}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <Building2 className="w-4 h-4 inline mr-1" />
+                Nombre Edificio *
+              </label>
+              <input
+                type="text"
+                required
+                value={clientData.building_name}
+                onChange={(e) => setClientData({ ...clientData, building_name: e.target.value })}
+                placeholder="Ej: Trinidad 1"
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <p className="text-xs text-slate-500 mt-1">Este nombre aparecerá en todos los documentos PDF y búsquedas</p>
             </div>
 
             <div>
@@ -295,29 +346,16 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
               />
             </div>
 
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 <MapPin className="w-4 h-4 inline mr-1" />
-                Dirección Principal *
+                Dirección *
               </label>
               <input
                 type="text"
                 required
                 value={clientData.address}
                 onChange={(e) => setClientData({ ...clientData, address: e.target.value })}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Dirección de Facturación
-              </label>
-              <input
-                type="text"
-                value={clientData.billing_address}
-                onChange={(e) => setClientData({ ...clientData, billing_address: e.target.value })}
-                placeholder="Si está vacío, se usa la dirección principal"
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -393,6 +431,30 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
             </h3>
           </div>
 
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              N° de Equipos *
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              required
+              value={totalEquipments}
+              onChange={(e) => {
+                const value = parseInt(e.target.value) || 1;
+                setTotalEquipments(value);
+                if (identicalElevators) {
+                  setElevatorCount(value);
+                }
+              }}
+              className="w-32 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            />
+            <p className="text-xs text-blue-700 mt-2">
+              Especifica cuántos ascensores tiene el edificio. Este será el límite de equipos que puedes registrar.
+            </p>
+          </div>
+
           <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -415,12 +477,22 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
                 <input
                   type="number"
                   min="1"
-                  max="50"
+                  max={totalEquipments}
                   required={identicalElevators}
                   value={elevatorCount}
-                  onChange={(e) => setElevatorCount(parseInt(e.target.value) || 1)}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 1;
+                    if (value > totalEquipments) {
+                      alert(`No puedes tener más ascensores (${value}) que el número de equipos especificado (${totalEquipments})`);
+                      return;
+                    }
+                    setElevatorCount(value);
+                  }}
                   className="w-32 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
+                <p className="text-xs text-slate-600 mt-1">
+                  Debe coincidir con el N° de Equipos ({totalEquipments})
+                </p>
               </div>
             )}
           </div>
@@ -678,6 +750,36 @@ export function ClientForm({ onSuccess, onCancel }: ClientFormProps) {
             </>
           )}
         </div>
+
+        {generatedClientCode && generatedQRCode && (
+          <div className="border border-green-200 bg-green-50 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-green-900 mb-4 flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              Cliente Creado Exitosamente
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Código Único del Cliente
+                </label>
+                <div className="bg-white border border-slate-300 rounded-lg p-3 font-mono text-sm">
+                  {generatedClientCode}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Código QR Generado
+                </label>
+                <div className="bg-white border border-slate-300 rounded-lg p-3 flex justify-center">
+                  <img src={generatedQRCode} alt="QR Code" className="w-32 h-32" />
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-green-700 mt-4">
+              El código QR ha sido generado automáticamente. Puedes acceder a todos los códigos QR desde la vista "Gestión de Códigos QR".
+            </p>
+          </div>
+        )}
 
         <div className="flex gap-4 pt-4 border-t border-slate-200">
           {onCancel && (
